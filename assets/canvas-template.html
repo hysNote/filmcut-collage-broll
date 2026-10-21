@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>口播拼贴 B-roll 预览</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#13211b;color:#efe7d1;font:15px/1.7 system-ui,'Microsoft YaHei',sans-serif}main{display:flex;gap:32px;max-width:1100px;padding:24px;margin:auto}canvas{display:block;width:min(55vw,500px);height:auto;box-shadow:0 20px 60px #0005}aside{max-width:400px;padding:20px 0}button,select{font:inherit;padding:8px 12px;background:#ead7a4;color:#13211b;border:0;border-radius:4px;margin:4px 0}input{width:100%;accent-color:#dfb441}p{color:#bfc7bc}body.render main{display:block;padding:0;margin:0;max-width:none}body.render aside{display:none}body.render canvas{box-shadow:none;max-width:none;width:auto;height:auto}@media(max-width:650px){main{display:block}canvas{width:100%}}</style>
+<main><canvas id="stage"></canvas><aside><h1 id="title"></h1><select id="shot"></select><p id="quote"></p><p id="idea"></p><p id="timing"></p><button id="play">播放</button><button id="hold">完成帧</button><input id="scrub" type="range" min="0" step="0.01"><p id="status"></p><p>人物和其他剪贴由项目中的独立素材文件提供。替换后重新检查静帧并渲染。</p></aside></main>
+<script id="project-data" type="application/json">__FILMCUT_PROJECT_JSON__</script>
+<script>
+const project=JSON.parse(document.getElementById('project-data').textContent),canvas=document.getElementById('stage'),ctx=canvas.getContext('2d');
+canvas.width=project.output.width;canvas.height=project.output.height;
+if(new URLSearchParams(location.search).has('render'))document.body.classList.add('render');
+const images=new Map(),clamp=x=>Math.max(0,Math.min(1,x)),lerp=(a,b,p)=>a+(b-a)*p;
+const ease=x=>1-Math.pow(1-clamp(x),3);window.ready=false;window.assetErrors=[];
+let current=project.shots[0],playing=false,started=0,grain=null;
+function makeGrain(){const g=document.createElement('canvas');g.width=180;g.height=320;const c=g.getContext('2d'),d=c.createImageData(g.width,g.height);let seed=913;for(let i=0;i<d.data.length;i+=4){seed=(Math.imul(seed,1664525)+1013904223)>>>0;d.data[i]=d.data[i+1]=d.data[i+2]=seed>>>24;d.data[i+3]=10}c.putImageData(d,0,0);return g}
+function transform(layer,t){const e=layer.enter||{start:0,duration:0},start=e.start||0;if(t<start)return null;const p=e.duration?ease((t-start)/e.duration):1;let v={x:layer.x||0,y:layer.y||0,rotation:layer.rotation||0,scale:layer.scale??1,opacity:layer.opacity??1,progress:p};v.x+=(e.from_x||0)*(1-p);v.y+=(e.from_y||0)*(1-p);
+ const k=layer.keyframes;if(k&&k.length){if(t<k[0].time)return null;let a=k[0],b=a;for(let i=1;i<k.length;i++){b=k[i];if(t<=b.time)break;a=b}const q=a===b?1:ease((t-a.time)/(b.time-a.time));for(const key of ['x','y','rotation','scale','opacity'])v[key]=lerp(a[key]??v[key],b[key]??a[key]??v[key],q)}return v}
+function trace(points,p){if(!points.length)return;const lengths=points.slice(1).map((v,i)=>Math.hypot(v[0]-points[i][0],v[1]-points[i][1])),total=lengths.reduce((a,b)=>a+b,0);let remaining=total*p;ctx.moveTo(...points[0]);for(let i=0;i<lengths.length;i++){const a=points[i],b=points[i+1];if(remaining>=lengths[i]){ctx.lineTo(...b);remaining-=lengths[i]}else{const q=lengths[i]?remaining/lengths[i]:1;ctx.lineTo(lerp(a[0],b[0],q),lerp(a[1],b[1],q));break}}}
+function drawLayer(layer,t){const v=transform(layer,t);if(!v)return;ctx.save();ctx.translate(v.x,v.y);ctx.rotate(v.rotation*Math.PI/180);ctx.scale(v.scale,v.scale);ctx.globalAlpha=v.opacity;
+ if(layer.shadow){ctx.shadowColor=layer.shadow.color||'#10231c35';ctx.shadowBlur=layer.shadow.blur??7;ctx.shadowOffsetY=layer.shadow.y??6}
+ ctx.fillStyle=layer.fill||'#f0e2c1';ctx.strokeStyle=layer.stroke||'#e7c061';ctx.lineWidth=layer.line_width||8;
+ if(layer.type==='image'){const image=images.get(layer.src);if(!image)throw new Error('Missing image '+layer.src);const box=layer.crop||[0,0,image.naturalWidth,image.naturalHeight],w=layer.width||box[2],h=layer.height||w*box[3]/box[2];ctx.scale(w/box[2],h/box[3]);ctx.translate(-box[2]/2,-box[3]/2);if(layer.polygon){ctx.beginPath();layer.polygon.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.clip()}ctx.drawImage(image,...box,0,0,box[2],box[3]);
+ }else if(layer.type==='rect'){ctx.fillRect(-layer.width/2,-layer.height/2,layer.width,layer.height);if(layer.stroke)ctx.strokeRect(-layer.width/2,-layer.height/2,layer.width,layer.height);
+ }else if(layer.type==='circle'){ctx.beginPath();ctx.arc(0,0,layer.radius,0,2*Math.PI);ctx.fill();if(layer.stroke)ctx.stroke();
+ }else if(layer.type==='line'){ctx.beginPath();ctx.setLineDash(layer.dash||[]);ctx.lineJoin='round';trace(layer.points,layer.reveal===false?1:v.progress);ctx.stroke();
+ }else if(layer.type==='text'){ctx.fillStyle=layer.fill||'#172e26';ctx.font=layer.font||'bold 36px "Microsoft YaHei",sans-serif';ctx.textAlign=layer.align||'center';ctx.textBaseline='middle';ctx.fillText(layer.text,0,0);
+ }else{ctx.restore();throw new Error('Unsupported layer type '+layer.type)}ctx.restore()}
+window.drawFrame=function(id,time){const shot=project.shots.find(s=>s.id===id);if(!shot)throw new Error('Unknown shot '+id);current=shot;let t=Math.max(0,Math.min(shot.duration_s,time));if(shot.stop_motion_fps!==0){const f=shot.stop_motion_fps||12;t=Math.floor(t*f)/f}ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=shot.background;ctx.fillRect(0,0,canvas.width,canvas.height);if(!grain)grain=makeGrain();ctx.drawImage(grain,0,0,canvas.width,canvas.height);for(const layer of shot.layers||[])drawLayer(layer,t);
+ document.getElementById('quote').textContent=shot.quote;document.getElementById('idea').textContent=shot.visual_idea;const tl=shot.timeline||{};document.getElementById('timing').textContent=tl.verified?`${tl.in_s}–${tl.out_s} 秒 · 已核对`:'插入时间待核对';document.getElementById('shot').value=id;document.getElementById('scrub').max=shot.duration_s;document.getElementById('scrub').value=time;};
+document.getElementById('title').textContent=project.title;
+for(const shot of project.shots){const option=document.createElement('option');option.value=shot.id;option.textContent=`${shot.id} · ${shot.meaning||shot.quote}`;document.getElementById('shot').appendChild(option)}
+function lastTime(){const s=String(project.output.fps).split('/'),f=Number(s[0])/Number(s[1]||1);return (Math.max(1,Math.round(current.duration_s*f))-1)/f}
+function tick(now){if(!playing)return;const t=(now-started)/1000;if(t>=current.duration_s){playing=false;window.drawFrame(current.id,lastTime());return}window.drawFrame(current.id,t);requestAnimationFrame(tick)}
+document.getElementById('play').onclick=()=>{playing=!playing;if(playing){started=performance.now();requestAnimationFrame(tick)}};
+document.getElementById('hold').onclick=()=>{playing=false;window.drawFrame(current.id,lastTime())};
+document.getElementById('shot').onchange=e=>{playing=false;current=project.shots.find(s=>s.id===e.target.value);window.drawFrame(current.id,lastTime())};
+document.getElementById('scrub').oninput=e=>{playing=false;window.drawFrame(current.id,Number(e.target.value))};
+const paths=[...new Set(project.shots.flatMap(s=>(s.layers||[]).filter(l=>l.type==='image').map(l=>l.src)))];
+Promise.all(paths.map(src=>new Promise(resolve=>{const i=new Image();i.onload=()=>{images.set(src,i);resolve()};i.onerror=()=>{window.assetErrors.push(src);resolve()};i.src=src}))).then(()=>{if(!window.assetErrors.length&&current)window.drawFrame(current.id,lastTime());document.getElementById('status').textContent=window.assetErrors.length?'素材载入失败：'+window.assetErrors.join(', '):'本地素材已就绪';window.ready=true});
+</script></html>
