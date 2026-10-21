@@ -1,0 +1,4 @@
+interface:
+  display_name: "个人口播拼贴 B-roll"
+  short_description: "用四列表格审阅口播脚本与最终结果图，再生成本地拼贴动画及连续预览"
+  default_prompt: "使用 $filmcut-collage-broll 处理我的初剪口播视频和逐字稿：先用文案、时间/时长、预期画面呈现、最终结果图四列表格确认脚本，再把完成静帧填进同一张表；确认后用内置生图与本地动画交付独立片段、连续预览和插入说明。"
