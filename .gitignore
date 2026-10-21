@@ -1,0 +1,11 @@
+.venv/
+.runtime/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+.render-frames/
+output/
+projects/
+*.log
+.DS_Store
